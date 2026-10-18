@@ -176,6 +176,15 @@ button:focus-visible{outline:2px solid var(--tag);outline-offset:2px}
 .controls b{color:var(--cream);font-weight:600}
 #loadErr{color:var(--bad);font-size:13px}
 
+/* ---------- night summary ---------- */
+#night{position:absolute;left:50%;top:17%;transform:translateX(-50%);width:min(420px,92%);padding:12px 14px 12px;pointer-events:auto;cursor:pointer;transition:opacity .35s}
+#night.off{opacity:0}
+.touch #night{top:auto;bottom:210px;width:min(420px,94%)}
+#night h3{margin:0 0 6px;font:800 16px var(--f-disp);color:var(--tag)}
+#night ul{list-style:none;margin:0;padding:0;display:grid;gap:4px;font-size:13px;line-height:1.35}
+#night li.bad{color:var(--bad)}
+#night small{display:block;margin-top:7px;color:var(--mute);font-size:11px}
+
 /* ---------- mini-games ---------- */
 #mg{position:fixed;inset:0;z-index:10;background:rgba(5,9,7,.5);display:grid;place-items:center;padding:16px;touch-action:none}
 .mgbox{width:min(560px,100%);background:var(--panel-solid);border:1px solid var(--line);border-radius:14px;padding:14px;box-sizing:border-box;box-shadow:0 12px 40px rgba(0,0,0,.5)}
@@ -276,6 +285,7 @@ button:focus-visible{outline:2px solid var(--tag);outline-offset:2px}
       <circle id="ring" cx="28" cy="28" r="20" stroke="#ffd23f" stroke-width="3.5" stroke-linecap="round" stroke-dasharray="125.66" stroke-dashoffset="125.66" transform="rotate(-90 28 28)"/>
     </svg>
     <div class="tag" id="prompt" hidden></div>
+    <div id="night" class="card" hidden aria-live="polite"><h3 id="nightT"></h3><ul id="nightL"></ul><small>Нажмите, чтобы скрыть</small></div>
     <div id="toasts" aria-live="polite"></div>
     <div id="hint">Клик по сцене — мышь · WASD — ходить · Shift — бег · удерживай E или ЛКМ — работать</div>
     <button id="act">Делать</button>
@@ -748,10 +758,15 @@ const INVITE = 'Михалыч машет из-за калитки: «Хозяи
 const NEIGH_AT = [-7.5, 28.6];
 const NEED_TOOL = ['Голыми руками тут не справиться.','Старой кистью и молотком этого не сделать.','Петрович посмотрел и покачал головой.','Без нормального инструмента провозитесь до зимы.'];
 const WORK_TYPES = [
- {id:'half', n:'Полсмены', d:'Съездить на полдня и вернуться к делам', mul:.5, e:15},
- {id:'full', n:'Смена', d:'Обычный рабочий день', mul:1, e:30},
- {id:'over', n:'Смена со сверхурочными', d:'Платят почти втрое, но выжимает досуха', mul:2.6, e:70, minLvl:5},
+ {id:'half', n:'Полсмены', d:'Съездить на полдня и вернуться к делам', mul:.5, e:15, h:3},
+ {id:'full', n:'Смена', d:'Обычный рабочий день', mul:1, e:30, h:6},
+ {id:'over', n:'Смена со сверхурочными', d:'Платят почти втрое, но выжимает досуха', mul:2.6, e:70, h:10, minLvl:5},
 ];
+const WAKE = 7*60, EVE = 20*60, LATE = 21*60, BED = 23*60, CLOCK_RATE = 6;
+const hhmm = m => { m = Math.round(m); return Math.floor(m/60) + ':' + String(m%60).padStart(2, '0'); };
+const fits = h => S.clock + h*60 <= BED;
+const LATE_MSG = ['Стемнело. До полуночи пара часов — пора закругляться.','Вечереет. Соседи уже включили телевизоры. Пора закругляться.','Солнце село. Ещё пара дел — и на боковую.'];
+const DOZE = ['Уснули прямо на ходу. Утром нашли себя в обнимку с граблями.','Сон сморил там, где стояли. Соседская собака укрыла вас лопухом.','Заснули на улице. Комары поужинали, вы — нет.'];
 const OVER_LINES = ['Остались до девяти. Начальник оценил. На словах.','Сверхурочные: вы, кофемашина и охранник. Романтика.'];
 const FREELANCE = ['Сверстали лендинг для шиномонтажа. Заказчик просил «чтобы мигало».','Написали бота для чата СНТ. Председатель доволен, соседи — не очень.','Починили сайт пекарни. Заплатили деньгами и булочками.','Заказчик хотел «как у Apple, но за три тысячи». Сделали как смогли.','Весь день созвоны. Код написали за последние двадцать минут.'];
 const ODD = ['Петрович попросил распилить дрова. Пила старше вас обоих.','Помогли Петровичу перекрыть сарай. Угощал чаем с вареньем.','Таскали картошку из погреба. Картошки много, погреб глубокий.','Чинили Петровичу «Ниву». «Нива» победила, но обещала завестись завтра.','Копали Петровичу грядку. Нашли его потерянные в 2009-м очки.'];
@@ -761,7 +776,7 @@ const REP_MSG = {roof:'Крыша прохудилась насквозь. Ла�
 const wearLimit = r => r >= 1 ? 3 : r >= .5 ? 6 : 99;
 const RISK_SRC = {roofleak:['roof','mat'], fence:['fence','mat'], peel:['paint','mat'], pumpfix:['pump','mat'], filter:['filter','mat'], lamp:['lamps','style']};
 const TOOLS = [
- {id:'thermos', n:'Термос с чаем', d:'Бабушкин рецепт с чабрецом. Запас сил +40', price:2500},
+ {id:'thermos', n:'Термос с чаем', d:'Бабушкин рецепт с чабрецом. Запас сил +60', price:2500},
  {id:'courses', n:'Курсы повышения квалификации', d:'Корочка на стену и +40% к любому заработку', price:9000},
 ];
 const TLINES = {
@@ -789,8 +804,8 @@ const SAVE_KEY = 'khozyain-uchastka-v1';
 // STATE
 // ======================================================================
 function freshState(){
-  return {v:5, money:1500, energy:100, day:1, level:1, done:[], prog:{}, paid:{}, bds:[], grass:0, tools:[], choice:{}, final:false,
-    trees:{}, pos:[0,26.5], yaw:0, pitch:0, spent:0, earned:0, playTime:0, rollT:0, uid:1, hintSleep:false, hang:false, parties:0, invited:false, wear:{}, helps:0, tl:{}, season:'summer', act:1};
+  return {v:6, money:1500, energy:200, day:1, level:1, done:[], prog:{}, paid:{}, bds:[], grass:0, tools:[], choice:{}, final:false,
+    trees:{}, pos:[0,26.5], yaw:0, pitch:0, spent:0, earned:0, playTime:0, rollT:0, uid:1, hintSleep:false, hang:false, parties:0, invited:false, wear:{}, helps:0, tl:{}, season:'summer', act:1, clock:420};
 }
 function migrate(d){
   if (!d.v || d.v < 2){
@@ -802,7 +817,8 @@ function migrate(d){
   if (!d.v || d.v < 4){ const old = d.tools || [], m = {barrow:['clean',1], mower:['mow',1], repeller:['pest',2], tester:['elec',1], plumb:['water',1], sprayer:['paint',2], drill:['build',2], tiller:['garden',1]}; d.tl = {};
     old.forEach(id => { const x = m[id]; if (x) d.tl[x[0]] = Math.max(d.tl[x[0]] || 0, x[1]); }); d.tools = old.filter(id => id === 'thermos' || id === 'courses'); }
   if (!d.v || d.v < 5){ if (d.final && d.level > A1){ d.final = false; d.grass = .2; } d.act = d.act || 1; d.season = seasonAt(d.day, d.level, d.final); }
-  d.v = 5; return d;
+  if (d.clock == null) d.clock = WAKE;
+  d.v = 6; return d;
 }
 function load(){ try { const raw = localStorage.getItem(SAVE_KEY); if (!raw) return null; const d = JSON.parse(raw); return (d && Array.isArray(d.done)) ? migrate(Object.assign(freshState(), d, {v:d.v})) : null; } catch(e){ return null; } }
 function save(){ if (!S || mode !== 'play') return; try { S.pos = [P.x, P.z]; S.yaw = yaw; S.pitch = pitch; localStorage.setItem(SAVE_KEY, JSON.stringify(S)); } catch(e){} }
@@ -838,7 +854,7 @@ function speed(cat){ return (S.hang ? 1/1.3 : 1) * (TLINES[cat] ? TIER_S[tierOf(
 function eRate(line){ return ENERGY_RATE * (TLINES[line] ? TIER_E[tierOf(line)] : 1); }
 function missingTool(t){ const r = TREQ[t.id]; if (!r || tierOf(r[0]) >= r[1]) return null; return {line:r[0], tier:r[1], name:TLINES[r[0]].tiers[r[1]-1].n, price:TLINES[r[0]].tiers.slice(tierOf(r[0]), r[1]).reduce((a, x) => a + x.p, 0)}; }
 function toolName(line){ const k = tierOf(line); return k ? TLINES[line].tiers[k-1].n : TLINES[line].base; }
-const maxEnergy = () => 100 + (tool('thermos') ? 40 : 0);
+const maxEnergy = () => 200 + (tool('thermos') ? 60 : 0);
 const r10 = v => Math.round(v/10)*10;
 const condF = () => 0.5 + cond()/200;
 const wage = () => r10((350 + 95*Math.min(S.level,LAST)) * (tool('courses') ? 1.4 : 1) * (S.hang ? .7 : 1) * condF());
@@ -1666,6 +1682,7 @@ function processHold(dt){
     if (S.prog[k] >= 1) finish(t);
   } else {
     if ((t.kind === 'free' && S.energy < 25) || (t.kind === 'odd' && S.energy < 20)){ if (holdT === 0){ block(pick(TIRED_WORK)); return; } }
+    if ((t.kind === 'free' && !fits(3)) || (t.kind === 'odd' && !fits(2))){ if (holdT === 0){ block('Поздно для этого — до ночи не успеть. Завтра.'); return; } }
     if (t.kind === 'neigh' && holdT === 0 && S.hang && !S.final){ block(pick(HANG_BLOCK)); return; }
     holdT += dt / (t.kind === 'free' ? 4 : t.kind === 'odd' ? 3 : 2);
     if (holdT >= 1){ holdT = 0; holdBlocked = true; if (t.kind === 'free') doFree(); else if (t.kind === 'odd') doOdd(); else if (t.kind === 'neigh') doNeigh(); else doSleep(); }
@@ -1735,12 +1752,12 @@ function rollBDs(n){
 function doWork(id){
   const wt = WORK_TYPES.find(x => x.id === id), w = r10(wage()*wt.mul);
   const line = S.hang ? pick(HANG_WORK) : id === 'over' ? pick(OVER_LINES) : pick(WORK);
-  fade(wt.n, [line, '+' + fmt(w) + ' · −' + wt.e + ' сил'], () => { S.money += w; S.earned += w; S.energy = Math.max(0, S.energy - wt.e); updateHUD(); save(); }, 3000);
+  fade(wt.n, [line, '+' + fmt(w) + ' · −' + wt.e + ' сил · вернулись в ' + hhmm(S.clock + wt.h*60)], () => { S.money += w; S.earned += w; S.energy = Math.max(0, S.energy - wt.e); S.clock += wt.h*60; clockCheck(); updateHUD(); save(); }, 2200);
   sfx('coin');
 }
 function doFree(){
   const w = r10(wage()*.8);
-  fade('Фриланс', [pick(FREELANCE), '+' + fmt(w) + ' · −25 сил'], () => { S.money += w; S.earned += w; S.energy = Math.max(0, S.energy - 25); updateHUD(); save(); }, 3000);
+  fade('Фриланс', [pick(FREELANCE), '+' + fmt(w) + ' · −25 сил · 3 часа'], () => { S.money += w; S.earned += w; S.energy = Math.max(0, S.energy - 25); S.clock += 180; clockCheck(); updateHUD(); save(); }, 2200);
   sfx('coin');
 }
 function doOdd(){
@@ -1750,15 +1767,15 @@ function doOdd(){
     if (gifts.length){ const g = pick(gifts); S.tl[g] = 1; lines.push('Петрович отдал вам насовсем: ' + TLINES[g].tiers[0].n.toLowerCase() + '.'); }
     else { const tip = r10(100 + S.level*10); S.money += tip; lines.push('Петрович сунул сверху ' + fmt(tip) + ' «на гвозди».'); } }
   if (S.helps === 1) lines.push('Соседи ценят помощь: мусор и коза будут беспокоить реже.');
-  lines.push('+' + fmt(w) + ' · −20 сил');
-  fade('Подработка у Петровича', lines, () => { S.money += w; S.earned += w; S.energy = Math.max(0, S.energy - 20); updateHUD(); save(); }, 3600);
+  lines.push('+' + fmt(w) + ' · −20 сил · 2 часа');
+  fade('Подработка у Петровича', lines, () => { S.money += w; S.earned += w; S.energy = Math.max(0, S.energy - 20); S.clock += 120; clockCheck(); updateHUD(); save(); }, 2800);
   sfx('coin');
 }
 function workHTML(){
   const c = cond(), base = wage();
-  let h = '<h2>Работа</h2><p class="sub">Сколько сегодня работаем? Сил: ' + Math.round(S.energy) + '.' + (c < 100 ? ' Поломки дома отвлекают: заработок −' + Math.round((1 - condF())*100) + '%.' : '') + (S.hang ? ' С похмелья платят на 30% меньше.' : '') + '</p><div class="opts">';
-  WORK_TYPES.forEach(wt => { const lock = wt.minLvl && S.level < wt.minLvl, tired = S.energy < wt.e;
-    h += '<button class="opt" data-work="' + wt.id + '"' + (lock || tired ? ' disabled style="opacity:.45"' : '') + '><b>' + wt.n + '</b><small>' + (lock ? 'Откроется с ' + wt.minLvl + '-го уровня' : tired ? 'Не хватает сил' : wt.d) + '</small><em>+' + fmt(r10(base*wt.mul)) + ' · −' + wt.e + ' сил</em></button>'; });
+  let h = '<h2>Работа</h2><p class="sub">Сколько сегодня работаем? Сейчас ' + hhmm(S.clock) + ', сил ' + Math.round(S.energy) + '.' + (c < 100 ? ' Поломки дома отвлекают: заработок −' + Math.round((1 - condF())*100) + '%.' : '') + (S.hang ? ' С похмелья платят на 30% меньше.' : '') + '</p><div class="opts">';
+  WORK_TYPES.forEach(wt => { const lock = wt.minLvl && S.level < wt.minLvl, tired = S.energy < wt.e, late = !fits(wt.h);
+    h += '<button class="opt" data-work="' + wt.id + '"' + (lock || tired || late ? ' disabled style="opacity:.45"' : '') + '><b>' + wt.n + '</b><small>' + (lock ? 'Откроется с ' + wt.minLvl + '-го уровня' : tired ? 'Не хватает сил' : late ? 'Поздно: до ночи не успеть' : wt.d) + '</small><em>+' + fmt(r10(base*wt.mul)) + ' · −' + wt.e + ' сил · ' + wt.h + ' ч</em></button>'; });
   return h + '</div><div class="mrow"><button class="btn" data-act="close">Остаться дома</button></div>';
 }
 function openRepChoice(b){
@@ -1783,23 +1800,35 @@ function doNeigh(){
   if (S.final){ fade('Посидели с соседями', [story, pick(NEIGH_FINAL)], null, 4200); return; }
   fade('Посидели с соседями', [story], () => {
     const lines = [story, neighOutcome()];
-    S.day++; S.parties = (S.parties || 0) + 1; S.hang = true; S.energy = Math.round(maxEnergy()*.5);
+    S.day++; S.parties = (S.parties || 0) + 1; S.hang = true; S.energy = Math.round(maxEnergy()*.5); S.clock = 11*60; lateWarn = false;
     nightTick(lines, 1);
     if (S.parties === 1) lines.push('Соседи теперь считают вас своим. Мусор через забор будут кидать реже.');
-    lines.push({t:'Утро. Голова гудит: силы ' + S.energy + ', работа медленнее до следующего сна.'});
+    lines.push({t:'Проснулись в 11:00. Голова гудит: силы ' + S.energy + ', работа медленнее до следующего сна.'});
     $('#fadeL').innerHTML = renderLines(lines);
-    refreshWorld(); updateHUD(); renderTasks(); save();
+    applyLook(false); updateHUD(); renderTasks(); save();
   }, 5200);
 }
-function doSleep(){
-  fade('День ' + (S.day + 1), [], () => {
-    const wasHang = S.hang; S.day++; S.energy = maxEnergy(); S.hang = false;
-    const lines = []; if (wasHang) lines.push('Похмелье прошло. Можно жить дальше.');
+let nightTO = 0;
+function nightCard(title, lines){ const el = $('#night'); $('#nightT').textContent = title; $('#nightL').innerHTML = renderLines(lines); el.hidden = false; el.classList.remove('off');
+  clearTimeout(nightTO); nightTO = setTimeout(hideNight, 6500 + lines.length*700); }
+function hideNight(){ const el = $('#night'); el.classList.add('off'); clearTimeout(nightTO); nightTO = setTimeout(() => { el.hidden = true; }, 380); }
+function doSleep(doze){
+  fade('', [], () => {
+    const wasHang = S.hang; S.day++; S.energy = Math.round(maxEnergy()*(doze ? .8 : 1)); S.hang = false; S.clock = WAKE; lateWarn = false;
+    const lines = []; if (doze) lines.push(pick(DOZE) + ' Силы ' + S.energy + '.'); if (wasHang) lines.push('Похмелье прошло. Можно жить дальше.');
     nightTick(lines, 0);
     if (!lines.some(l => l.bad)) lines.push(pick(CALM));
-    $('#fadeL').innerHTML = renderLines(lines);
-    refreshWorld(); updateHUD(); renderTasks(); save();
-  }, 3200);
+    applyLook(false); updateHUD(); renderTasks(); save();
+    setTimeout(() => nightCard('День ' + S.day + ' · ' + hhmm(S.clock), lines), 450);
+  }, 1000);
+}
+let lateWarn = false;
+function clockAdvance(dt){ if (S.final || mode !== 'play') return; S.clock += dt*CLOCK_RATE; clockCheck(); }
+function clockCheck(){
+  if (S.final) return;
+  const eve = S.clock >= EVE; if (eve !== isEvening) applyLook(eve);
+  if (S.clock >= LATE && !lateWarn){ lateWarn = true; toast(pick(LATE_MSG)); }
+  if (S.clock >= BED && !fadeLock && !MG && !paused){ S.clock = BED; doSleep(true); }
 }
 function startFinal(){
   S.final = true; finalPending = false; S.grass = .2; S.bds = []; S.energy = maxEnergy(); S.season = 'winter'; save(); refreshWorld();
@@ -1845,7 +1874,7 @@ function updateHUD(){
   const ts = curTasks(), d = ts.filter(t => has(t.id)).length;
   $('#lvlBar').style.width = (S.level > LAST ? 100 : ts.length ? d/ts.length*100 : 0) + '%';
   setText('#money', fmt(S.money)); $('#money').classList.toggle('neg', S.money < 0);
-  setText('#day', 'День ' + S.day + ' · ' + SEASONS[season()]);
+  setText('#day', 'День ' + S.day + ' · ' + SEASONS[season()] + (S.final ? '' : ' · ' + hhmm(Math.floor(S.clock/10)*10)));
   const me = maxEnergy(); $('#eBar').style.width = clamp(S.energy/me*100, 0, 100) + '%'; setText('#eNum', Math.round(S.energy)); $('#energy').classList.toggle('low', S.energy < 25);
   $('#hang').hidden = !S.hang; setText('#cond', cond() + '%'); $('#condRow').classList.toggle('bad', cond() < 100);
 }
@@ -1887,10 +1916,10 @@ function updatePrompt(){
     else if (S.energy < 1) warn = 'Нет сил — поспите в доме';
     prog = S.prog[t.key] || 0;
   } else if (t.kind === 'work'){ kind = 'Работа'; price = 'от +' + fmt(r10(wage()*.5)); meta = 'полсмены, смена или сверхурочно'; hint = (IS_TOUCH ? 'Нажмите «Делать»' : 'Нажмите E') + ' — выбрать смену'; if (S.energy < 15) warn = 'Слишком устали — поспите'; }
-  else if (t.kind === 'free'){ kind = 'Фриланс'; price = '+' + fmt(r10(wage()*.8)); meta = '4 с<span>−25 сил, без поездки</span>'; if (S.energy < 25) warn = 'Слишком устали — поспите'; prog = holdKey === 'free' ? holdT : 0; }
-  else if (t.kind === 'odd'){ kind = 'Подработка'; price = '+' + fmt(r10(wage()*.6)); meta = '3 с<span>−20 сил, соседи станут добрее</span>'; if (S.energy < 20) warn = 'Слишком устали — поспите'; prog = holdKey === 'odd' ? holdT : 0; }
+  else if (t.kind === 'free'){ kind = 'Фриланс'; price = '+' + fmt(r10(wage()*.8)); meta = '3 часа<span>−25 сил, без поездки</span>'; if (S.energy < 25) warn = 'Слишком устали — поспите'; prog = holdKey === 'free' ? holdT : 0; }
+  else if (t.kind === 'odd'){ kind = 'Подработка'; price = '+' + fmt(r10(wage()*.6)); meta = '2 часа<span>−20 сил, соседи станут добрее</span>'; if (S.energy < 20) warn = 'Слишком устали — поспите'; prog = holdKey === 'odd' ? holdT : 0; }
   else if (t.kind === 'neigh'){ kind = 'Соседи зовут'; if (S.final){ price = 'душевно'; meta = 'просто посидеть'; } else { price = 'до утра'; meta = 'утром похмелье<span>соседи станут добрее</span>'; if (S.hang) warn = 'Вчера уже сидели — сначала выспитесь'; } prog = holdKey === 'neigh' ? holdT : 0; }
-  else { kind = 'Спальня'; price = 'новый день'; meta = 'силы восстановятся<span>ночью может что-то сломаться</span>'; prog = holdKey === 'sleep' ? holdT : 0; }
+  else { kind = 'Спальня'; price = 'проснётесь в 7:00'; meta = 'силы восстановятся<span>ночью может что-то сломаться</span>'; prog = holdKey === 'sleep' ? holdT : 0; }
   const html = '<div class="tag-k">' + kind + '</div><div class="tag-n">' + t.name + '</div><div class="tag-m"><b>' + price + '</b><span>' + meta + '</span></div>' + (chosen ? '<div class="tag-c">' + chosen + '</div>' : '') + (warn ? '<div class="tag-w">' + warn + '</div>' : '') + '<div class="tag-h">' + hint + (prog > 0 && prog < 1 ? ' · ' + Math.floor(prog*100) + '%' : '') + '</div>';
   if (html !== lastPrompt){ el.innerHTML = html; lastPrompt = html; el.classList.toggle('bdk', t.kind === 'bd'); }
   el.hidden = false; setRing(prog);
@@ -1916,7 +1945,7 @@ function fade(title, lines, mid, dur){
   setTimeout(() => { $('#fade').classList.remove('on'); fadeLock = false; }, dur || 2500);
 }
 function openModal(html, sheet){ $('#mbox').innerHTML = html; $('#modal').classList.toggle('sheet', !!sheet); $('#modal').hidden = false; $('#mbox').scrollTop = 0; paused = true; releaseInput(); try { if (document.pointerLockElement) document.exitPointerLock(); } catch(e){} }
-function closeModal(){ $('#modal').hidden = true; paused = false; if (preview){ preview = null; refreshWorld(); } }
+function closeModal(){ $('#modal').hidden = true; paused = false; setTimeout(clockCheck, 50); if (preview){ preview = null; refreshWorld(); } }
 function needList(line, tier){ return TASKS.filter(t => TREQ[t.id] && TREQ[t.id][0] === line && TREQ[t.id][1] === tier && !has(t.id)).map(t => (t.n.indexOf(':') > 0 ? t.n.split(':')[0] : t.n).toLowerCase()).filter((x, i, arr) => arr.indexOf(x) === i); }
 function shopHTML(focus){
   const lines = focus ? [focus].concat(TLINE_ORDER.filter(l => l !== focus)) : TLINE_ORDER;
@@ -1931,7 +1960,7 @@ function shopHTML(focus){
 }
 function menuHTML(confirmReset){
   return '<h2>Перекур</h2><p class="sub">День ' + S.day + ' · уровень ' + Math.min(S.level,LAST) + ' из ' + LAST + ' · ' + SEASONS[season()] + '</p>' +
-    '<ol class="help"><li>Задачи уровня — мини-игры. Стройка, вода, электрика и пила — на тайминг, покраска, покос, уборка и снег — мазками, земля и прочее — быстрыми нажатиями. Чисто сработали — быстрее и меньше сил. Три промаха — сорвалось, прогресс сгорает. Поломки чинятся удержанием.</li><li>Каждые ' + SEASON_LEN + ' дней меняется сезон. Осенью листопад, зимой снег, замёрзшие трубы и дорогое отопление, весной талая вода. Летние поломки зимой спят.</li><li>Жёлтые маркеры — задачи уровня, красные — поломки. Сделайте все задачи, чтобы перейти дальше.</li><li>Во многих задачах есть выбор: материал, цвет, размер. От выбора зависят цена, время работы и то, как часто вещь будет ломаться. Вариант сразу видно на участке.</li><li>Материалы оплачиваются при старте работы. За уровни денег не дают — зарабатывайте сами: смена на работе (машина у ворот), подработка у Петровича за западным забором, а после электрощитка — фриланс за столом в гостиной.</li><li>В дом можно зайти: гостиная слева, кухня и спальня справа. Спать — в спальне, ночью что-нибудь может сломаться.</li><li>Каждая поломка снижает «Состояние дома» и заработок на 6%. Дешёвые материалы ломаются чаще, а после 3 поломок (средние — после 6) их приходится менять целиком.</li><li>Без нужного инструмента часть работ не начать: заборы требуют шуруповёрт, фундаменты — бетономешалку, сруб — бензопилу. У каждого инструмента 2–3 уровня: чем выше уровень, тем меньше сил уходит на работу.</li><li>Надоело всё — сходите к соседям у калитки. Ночь пролетит незаметно, утром будет похмелье, зато соседи станут добрее.</li></ol>' +
+    '<ol class="help"><li>День идёт с 7:00 до 23:00. Работа и подработки отнимают часы, в 20:00 темнеет. К 23:00 лучше быть в кровати — иначе уснёте где стоите, и утром сил будет меньше.</li><li>Задачи уровня — мини-игры. Стройка, вода, электрика и пила — на тайминг, покраска, покос, уборка и снег — мазками, земля и прочее — быстрыми нажатиями. Чисто сработали — быстрее и меньше сил. Три промаха — сорвалось, прогресс сгорает. Поломки чинятся удержанием.</li><li>Каждые ' + SEASON_LEN + ' дней меняется сезон. Осенью листопад, зимой снег, замёрзшие трубы и дорогое отопление, весной талая вода. Летние поломки зимой спят.</li><li>Жёлтые маркеры — задачи уровня, красные — поломки. Сделайте все задачи, чтобы перейти дальше.</li><li>Во многих задачах есть выбор: материал, цвет, размер. От выбора зависят цена, время работы и то, как часто вещь будет ломаться. Вариант сразу видно на участке.</li><li>Материалы оплачиваются при старте работы. За уровни денег не дают — зарабатывайте сами: смена на работе (машина у ворот), подработка у Петровича за западным забором, а после электрощитка — фриланс за столом в гостиной.</li><li>В дом можно зайти: гостиная слева, кухня и спальня справа. Спать — в спальне, ночью что-нибудь может сломаться.</li><li>Каждая поломка снижает «Состояние дома» и заработок на 6%. Дешёвые материалы ломаются чаще, а после 3 поломок (средние — после 6) их приходится менять целиком.</li><li>Без нужного инструмента часть работ не начать: заборы требуют шуруповёрт, фундаменты — бетономешалку, сруб — бензопилу. У каждого инструмента 2–3 уровня: чем выше уровень, тем меньше сил уходит на работу.</li><li>Надоело всё — сходите к соседям у калитки. Ночь пролетит незаметно, утром будет похмелье, зато соседи станут добрее.</li></ol>' +
     '<div class="mrow"><button class="btn primary" data-act="close">Продолжить</button><button class="btn" data-act="sound">Звук: ' + (soundOn ? 'вкл' : 'выкл') + '</button>' +
     (confirmReset ? '<button class="btn warn" data-act="reset2">Да, начать заново</button>' : '<button class="btn" data-act="reset">Начать заново</button>') + '</div>' +
     (confirmReset ? '<p class="sub" style="margin-top:10px">Сохранение удалится без возможности вернуть.</p>' : '');
@@ -1941,7 +1970,7 @@ $('#modal').addEventListener('click', e => {
   if (b.dataset.opt && preview){ const p = b.dataset.opt.split('|'); preview.draft[p[0]] = p[1]; const sc = $('#mbox').scrollTop; $('#mbox').innerHTML = choiceHTML(); $('#mbox').scrollTop = sc; refreshWorld(); sfx('tick'); return; }
   if (b.dataset.work){ if (b.disabled) return; const id = b.dataset.work; closeModal(); doWork(id); return; }
   if (b.dataset.tl){ const l = b.dataset.tl, k = tierOf(l), next = TLINES[l].tiers[k]; if (next && S.money >= next.p){ S.money -= next.p; S.spent += next.p; S.tl[l] = k + 1; sfx('coin'); toast('Куплено: ' + next.n.toLowerCase() + '. ' + pick(['Хозяин с инструментом — уже полхозяина.','Пахнет новым пластиком и надеждой.','Продавец уважительно кивнул.']), 'ok'); updateHUD(); renderTasks(); lastPrompt = ''; save(); const sc = $('#mbox').scrollTop; $('#mbox').innerHTML = shopHTML(); $('#mbox').scrollTop = sc; } return; }
-  if (b.dataset.buy){ const t = TOOLS.find(x => x.id === b.dataset.buy); if (t && !tool(t.id) && S.money >= t.price){ S.money -= t.price; S.spent += t.price; S.tools.push(t.id); if (t.id === 'thermos') S.energy += 40; sfx('coin'); toast('Куплено: ' + t.n, 'ok'); updateHUD(); save(); $('#mbox').innerHTML = shopHTML(); } return; }
+  if (b.dataset.buy){ const t = TOOLS.find(x => x.id === b.dataset.buy); if (t && !tool(t.id) && S.money >= t.price){ S.money -= t.price; S.spent += t.price; S.tools.push(t.id); if (t.id === 'thermos') S.energy += 60; sfx('coin'); toast('Куплено: ' + t.n, 'ok'); updateHUD(); save(); $('#mbox').innerHTML = shopHTML(); } return; }
   const a = b.dataset.act;
   if (a === 'cpick' && preview){ const key = preview.key, d = Object.assign({}, preview.draft); S.choice[key] = d; if (preview.rep){ const b = preview.rep; b.cost = taskCost(preview.task, d); b.d = preview.task.d*durMul(preview.task.lvl)*choiceMul(key, d, 'dm'); b.picked = true; S.wear[key] = 0; } const names = CHOICES[key].groups.map(G => optOf(key, G.k, d[G.k]).n).join(', '); preview = null; closeModal(); refreshWorld(); toast('Отличный выбор: ' + names + '. Удерживайте, чтобы начать.', 'ok'); renderTasks(); lastPrompt = ''; save(); return; }
   if (a === 'ccancel' || a === 'close') closeModal();
@@ -2095,7 +2124,7 @@ function mgStats(){ const m = MG; $('#mgP').style.width = Math.min(100, m.f*100)
   let tx = 'Силы ' + Math.round(S.energy); if (m.kind === 'tap') tx += ' · ' + Math.max(0, Math.ceil(m.limit - m.time)) + ' с';
   $('#mgS').innerHTML = tx + ' · <b>' + '●'.repeat(m.strikes) + '</b>' + '○'.repeat(3 - m.strikes); }
 function mgClose(why){
-  const m = MG; if (!m) return; MG = null; $('#mg').hidden = true; paused = false; holdBlocked = true;
+  const m = MG; if (!m) return; MG = null; $('#mg').hidden = true; paused = false; holdBlocked = true; setTimeout(clockCheck, 50);
   const t = m.t, base = m.E*(1 - m.p0);
   if (why === 'done'){
     let refund = 0; if (m.kind === 'swp') refund = base*.35*clamp((m.par - m.time)/m.par, 0, 1); if (m.kind === 'tap') refund = base*.35*clamp((m.limit - m.time)/m.limit, 0, 1);
@@ -2107,7 +2136,7 @@ function mgClose(why){
   else { S.prog[t.key] = Math.min(.99, m.f); if (why === 'tired') toast(pick(NO_ENERGY), 'bad'); }
   updateHUD(); renderTasks(); save();
 }
-function mgTick(dt){ const m = MG; m.time += dt; if (m.flT > 0) m.flT -= dt;
+function mgTick(dt){ const m = MG; m.time += dt; if (!S.final) S.clock = Math.min(BED, S.clock + dt*CLOCK_RATE); if (m.flT > 0) m.flT -= dt;
   if (m.kind === 'tim'){ m.pos += m.dir*m.spd*dt; if (m.pos > 1){ m.pos = 2 - m.pos; m.dir = -1; } if (m.pos < 0){ m.pos = -m.pos; m.dir = 1; } }
   if (m.kind === 'tap'){ m.pulse = Math.max(0, m.pulse - dt*6); m.f = Math.max(m.p0, m.f - dt*.025);
     if (m.stopOn > 0){ m.stopOn -= dt; if (m.stopOn <= 0) m.stopT = rnd(1.4, 2.8); } else { m.stopT -= dt; if (m.stopT <= 0) m.stopOn = .85; }
@@ -2157,6 +2186,7 @@ mgC.addEventListener('pointermove', e => { if (!MG || MG.kind !== 'swp') return;
   if (q){ const d = Math.hypot(p[0] - q[0], p[1] - q[1]), st = Math.max(1, Math.ceil(d/6)); for (let i=1;i<=st && MG;i++) mgPaint(q[0] + (p[0] - q[0])*i/st, q[1] + (p[1] - q[1])*i/st); } else mgPaint(p[0], p[1]); });
 ['pointerup','pointercancel','pointerleave'].forEach(ev => mgC.addEventListener(ev, () => { if (MG) MG.down = false; }));
 $('#mgX').addEventListener('click', () => mgClose('pause'));
+$('#night').addEventListener('click', hideNight);
 addEventListener('resize', () => { if (MG){ mgSize(); mgDraw(); } });
 
 // ======================================================================
@@ -2183,7 +2213,7 @@ function begin(isNew){
   document.body.classList.toggle('final', !!S.final);
   if (S.final) setText('#finalDay', 'День ' + S.day + ' · просто гуляйте');
   MK.forEach(g => scene.remove(g)); MK.clear();
-  applyLook(!!S.final); updateHUD(); renderTasks(); lastPrompt = '';
+  lateWarn = S.clock >= LATE; applyLook(!!S.final || S.clock >= EVE); updateHUD(); renderTasks(); lastPrompt = '';
   if (!IS_TOUCH){ try { const r = canvas.requestPointerLock && canvas.requestPointerLock(); if (r && r.catch) r.catch(() => {}); } catch(e){} setTimeout(() => $('#hint').classList.add('gone'), 14000); }
   if (S.final) toast('С Новым годом! Участок ваш — наслаждайтесь заслуженно.', 'ok');
   else if (isNew){ banner('Уровень 1', 'Поздравляем с покупкой! Начнём с малого: вывезите кучу мусора'); setTimeout(() => toast(IS_TOUCH ? 'Подойдите к жёлтому маркеру и удерживайте «Делать»' : 'Подойдите к жёлтому маркеру и удерживайте E'), 1200); }
@@ -2209,7 +2239,7 @@ function tick(dt, t){
       const sp = run ? 7.2 : (indoor ? 3.2 : 4.4), fx0 = -Math.sin(yaw), fz0 = -Math.cos(yaw), rx0 = Math.cos(yaw), rz0 = -Math.sin(yaw);
       for (let s=0; s<2; s++){ P.x += (fx0*mz + rx0*mx)*sp*dt/2; P.z += (fz0*mz + rz0*mx)*sp*dt/2; collide(); }
       if (len > .05) bobT += dt*(run ? 11 : 8);
-      S.playTime += dt;
+      S.playTime += dt; clockAdvance(dt);
       newsT -= dt; if (newsT <= 0 && !S.invited && !S.final){ newsT = rnd(80, 130); S.invited = true; toast(INVITE); }
       if (newsT <= 0){ newsT = rnd(80, 130); const el = NEWS.filter(n => n.ok() && n.t !== lastNews); if (el.length){ const n = pick(el); lastNews = n.t; toast(n.t); } }
       if (S.level >= 8 && S.level <= LAST && !S.final){ S.rollT += dt; if (S.rollT > 150){ S.rollT = 0; const added = rollBDs(1); if (added.length){ toast(added[0], 'bad'); sfx('err'); refreshWorld(); updateHUD(); renderTasks(); save(); } } }
