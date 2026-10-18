@@ -1,5 +1,5 @@
 // Мой дом — офлайн-кэш. При обновлении игры поменяйте номер версии.
-const VERSION = 'moy-dom-v6';
+const VERSION = 'moy-dom-v1';
 const ASSETS = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png', './apple-touch-icon.png', './favicon.png'];
 const FONT_HOSTS = ['fonts.googleapis.com', 'fonts.gstatic.com'];
 
