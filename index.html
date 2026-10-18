@@ -176,6 +176,21 @@ button:focus-visible{outline:2px solid var(--tag);outline-offset:2px}
 .controls b{color:var(--cream);font-weight:600}
 #loadErr{color:var(--bad);font-size:13px}
 
+/* ---------- mini-games ---------- */
+#mg{position:fixed;inset:0;z-index:10;background:rgba(5,9,7,.5);display:grid;place-items:center;padding:16px;touch-action:none}
+.mgbox{width:min(560px,100%);background:var(--panel-solid);border:1px solid var(--line);border-radius:14px;padding:14px;box-sizing:border-box;box-shadow:0 12px 40px rgba(0,0,0,.5)}
+.mg-top{display:flex;justify-content:space-between;gap:10px;align-items:flex-start;margin-bottom:10px}
+.mg-k{font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--mute)}
+.mg-n{font:700 16px/1.25 var(--f-disp);color:var(--tag);margin-top:3px}
+.mg-x{background:none;border:1px solid var(--line);color:var(--mute);border-radius:8px;padding:8px 10px;font-size:12px;flex:none}
+#mgC{display:block;width:100%;aspect-ratio:16/10;border-radius:10px;background:#0c1310;touch-action:none;cursor:crosshair}
+.mg-h{margin:10px 0 8px;font-size:13.5px;line-height:1.4;min-height:1.4em}
+.mg-stats{display:grid;grid-template-columns:1fr auto;gap:12px;align-items:center;font:500 12px var(--f-mono);color:var(--mute)}
+.mg-bar{height:8px;border-radius:4px;background:rgba(255,255,255,.1);overflow:hidden}
+.mg-bar i{display:block;height:100%;width:0;background:var(--tag);transition:width .12s}
+.mg-stats b{color:var(--bad);letter-spacing:.1em}
+@media (max-height:520px){.mgbox{width:min(520px,100%);padding:10px}#mgC{aspect-ratio:2/1}.mg-h{margin:6px 0}}
+
 /* ---------- modal ---------- */
 #modal{position:fixed;inset:0;z-index:9;background:rgba(5,9,7,.6);display:grid;place-items:center;overflow:auto;padding-block:20px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
 #modal.sheet{background:transparent;place-items:end center;padding-block:12px}
@@ -288,6 +303,7 @@ button:focus-visible{outline:2px solid var(--tag);outline-offset:2px}
   </div>
 </div>
 
+<div id="mg" hidden><div class="mgbox" role="dialog" aria-modal="true" aria-labelledby="mgN"><div class="mg-top"><div><div class="mg-k" id="mgK"></div><div class="mg-n" id="mgN"></div></div><button class="mg-x" id="mgX">Отложить</button></div><canvas id="mgC"></canvas><div class="mg-h" id="mgH"></div><div class="mg-stats"><div class="mg-bar"><i id="mgP"></i></div><span id="mgS"></span></div></div></div>
 <div id="modal" hidden><div class="mbox" id="mbox" role="dialog" aria-modal="true"></div></div>
 
 <script>/**
@@ -1644,6 +1660,7 @@ function processHold(dt){
     const k = t.key, cost = t.kind === 'task' ? taskCost(t.ref) : t.ref.cost;
     if (!S.paid[k]){ if (S.money < cost){ block(noMoney(cost - S.money)); return; } S.money -= cost; S.spent += cost; S.paid[k] = 1; if (cost > 0) sfx('coin'); updateHUD(); }
     if (S.energy <= .5){ block(pick(NO_ENERGY)); return; }
+    if (t.kind === 'task'){ holdBlocked = true; mgOpen(t); return; }
     S.prog[k] = (S.prog[k] || 0) + dt/effDur(t); S.energy = Math.max(0, S.energy - dt*eRate(t.kind === 'task' ? lineOf(t.ref) : t.cat));
     if (!S.hintSleep && S.energy < 25){ S.hintSleep = true; toast('Силы на исходе. Пора на боковую — спальня в доме, справа от входа.'); }
     if (S.prog[k] >= 1) finish(t);
@@ -1863,7 +1880,8 @@ function updatePrompt(){
     const cost = t.kind === 'task' ? taskCost(t.ref) : t.ref.cost, dur = effDur(t);
     price = S.paid[t.key] ? 'оплачено' : (cost ? fmt(cost) : 'бесплатно');
     const ln = t.kind === 'task' ? lineOf(t.ref) : t.cat;
-    meta = fsec(dur) + '<span>−' + Math.ceil(dur*eRate(ln)) + ' сил</span>' + (TLINES[ln] ? '<span>' + toolName(ln).toLowerCase() + '</span>' : '');
+    meta = (t.kind === 'task' ? 'до −' + Math.ceil(dur*eRate(ln)) + ' сил' : fsec(dur) + '<span>−' + Math.ceil(dur*eRate(ln)) + ' сил</span>') + (TLINES[ln] ? '<span>' + toolName(ln).toLowerCase() + '</span>' : '');
+    if (t.kind === 'task') hint = (IS_TOUCH ? 'Нажмите «Делать»' : 'Нажмите E') + ' — ' + MG_NAME[MG_KIND[ln] || 'tap'];
     if (t.kind === 'task' && t.ref.ch) chosen = CHOICES[t.ref.ch].groups.filter(G => G.type !== 'color').map(G => optOf(t.ref.ch, G.k).n).join(', ');
     if (!S.paid[t.key] && S.money < cost) warn = 'Не хватает ' + fmt(cost - S.money);
     else if (S.energy < 1) warn = 'Нет сил — поспите в доме';
@@ -1913,7 +1931,7 @@ function shopHTML(focus){
 }
 function menuHTML(confirmReset){
   return '<h2>Перекур</h2><p class="sub">День ' + S.day + ' · уровень ' + Math.min(S.level,LAST) + ' из ' + LAST + ' · ' + SEASONS[season()] + '</p>' +
-    '<ol class="help"><li>Каждые ' + SEASON_LEN + ' дней меняется сезон. Осенью листопад, зимой снег, замёрзшие трубы и дорогое отопление, весной талая вода. Летние поломки зимой спят.</li><li>Жёлтые маркеры — задачи уровня, красные — поломки. Сделайте все задачи, чтобы перейти дальше.</li><li>Во многих задачах есть выбор: материал, цвет, размер. От выбора зависят цена, время работы и то, как часто вещь будет ломаться. Вариант сразу видно на участке.</li><li>Материалы оплачиваются при старте работы. За уровни денег не дают — зарабатывайте сами: смена на работе (машина у ворот), подработка у Петровича за западным забором, а после электрощитка — фриланс за столом в гостиной.</li><li>В дом можно зайти: гостиная слева, кухня и спальня справа. Спать — в спальне, ночью что-нибудь может сломаться.</li><li>Каждая поломка снижает «Состояние дома» и заработок на 6%. Дешёвые материалы ломаются чаще, а после 3 поломок (средние — после 6) их приходится менять целиком.</li><li>Без нужного инструмента часть работ не начать: заборы требуют шуруповёрт, фундаменты — бетономешалку, сруб — бензопилу. У каждого инструмента 2–3 уровня: чем выше уровень, тем меньше сил уходит на работу.</li><li>Надоело всё — сходите к соседям у калитки. Ночь пролетит незаметно, утром будет похмелье, зато соседи станут добрее.</li></ol>' +
+    '<ol class="help"><li>Задачи уровня — мини-игры. Стройка, вода, электрика и пила — на тайминг, покраска, покос, уборка и снег — мазками, земля и прочее — быстрыми нажатиями. Чисто сработали — быстрее и меньше сил. Три промаха — сорвалось, прогресс сгорает. Поломки чинятся удержанием.</li><li>Каждые ' + SEASON_LEN + ' дней меняется сезон. Осенью листопад, зимой снег, замёрзшие трубы и дорогое отопление, весной талая вода. Летние поломки зимой спят.</li><li>Жёлтые маркеры — задачи уровня, красные — поломки. Сделайте все задачи, чтобы перейти дальше.</li><li>Во многих задачах есть выбор: материал, цвет, размер. От выбора зависят цена, время работы и то, как часто вещь будет ломаться. Вариант сразу видно на участке.</li><li>Материалы оплачиваются при старте работы. За уровни денег не дают — зарабатывайте сами: смена на работе (машина у ворот), подработка у Петровича за западным забором, а после электрощитка — фриланс за столом в гостиной.</li><li>В дом можно зайти: гостиная слева, кухня и спальня справа. Спать — в спальне, ночью что-нибудь может сломаться.</li><li>Каждая поломка снижает «Состояние дома» и заработок на 6%. Дешёвые материалы ломаются чаще, а после 3 поломок (средние — после 6) их приходится менять целиком.</li><li>Без нужного инструмента часть работ не начать: заборы требуют шуруповёрт, фундаменты — бетономешалку, сруб — бензопилу. У каждого инструмента 2–3 уровня: чем выше уровень, тем меньше сил уходит на работу.</li><li>Надоело всё — сходите к соседям у калитки. Ночь пролетит незаметно, утром будет похмелье, зато соседи станут добрее.</li></ol>' +
     '<div class="mrow"><button class="btn primary" data-act="close">Продолжить</button><button class="btn" data-act="sound">Звук: ' + (soundOn ? 'вкл' : 'выкл') + '</button>' +
     (confirmReset ? '<button class="btn warn" data-act="reset2">Да, начать заново</button>' : '<button class="btn" data-act="reset">Начать заново</button>') + '</div>' +
     (confirmReset ? '<p class="sub" style="margin-top:10px">Сохранение удалится без возможности вернуть.</p>' : '');
@@ -1947,6 +1965,9 @@ function sfx(k){ if (!AC || !soundOn) return; const n = AC.currentTime;
   else if (k === 'level'){ [523,659,784,1046].forEach((f,i) => tone(f, n+i*.09, .25, 'triangle', .1)); }
   else if (k === 'coin'){ tone(1250,n,.06,'square',.035); tone(1660,n+.05,.09,'square',.035); }
   else if (k === 'err'){ tone(170,n,.2,'sawtooth',.05); }
+  else if (k === 'perf'){ tone(880,n,.08,'triangle',.1); tone(1320,n+.06,.1,'triangle',.08); }
+  else if (k === 'hit'){ tone(520,n,.07,'triangle',.08); }
+  else if (k === 'tap'){ tone(300 + Math.random()*80, n, .04, 'square', .025); }
   else if (k === 'tick'){ tone(260 + Math.random()*60, n, .05, 'triangle', .03); } }
 
 // ======================================================================
@@ -1957,6 +1978,7 @@ const joyEl = $('#joy'), knob = $('#knob');
 function releaseInput(){ keys = {}; mouseHold = false; btnHold = false; joy = null; look = null; dragLook = null; joyEl.style.display = 'none'; }
 addEventListener('keydown', e => {
   if (mode !== 'play') return;
+  if (MG){ if (e.code === 'Escape') mgClose('pause'); else if (!e.repeat && (e.code === 'Space' || e.code === 'KeyE' || e.code === 'Enter')){ e.preventDefault(); initAudio(); mgPress(); } return; }
   if (e.code === 'Escape' && !$('#modal').hidden){ closeModal(); return; }
   if (paused) return;
   keys[e.code] = true; initAudio();
@@ -2007,6 +2029,135 @@ actBtn.addEventListener('pointerdown', e => { e.preventDefault(); initAudio(); b
 ['pointerup','pointercancel','lostpointercapture'].forEach(ev => actBtn.addEventListener(ev, () => { btnHold = false; }));
 actBtn.addEventListener('contextmenu', e => e.preventDefault());
 document.addEventListener('gesturestart', e => e.preventDefault());
+
+
+// ======================================================================
+// MINI-GAMES
+// ======================================================================
+const MG_KIND = {build:'tim', water:'tim', elec:'tim', saw:'tim', paint:'swp', mow:'swp', clean:'swp', snow:'swp', garden:'tap', concrete:'tap', pest:'tap', other:'tap'};
+const MG_NAME = {tim:'мини-игра на точность', swp:'мини-игра: водите по экрану', tap:'мини-игра: жмите часто'};
+const MG_TXT = {
+ build:{v:'Стройка', h:'Бейте молотком, когда стрелка в зелёной зоне.', it:'гвоздь'},
+ water:{v:'Сантехника', h:'Затягивайте ключом, когда стрелка в зелёной зоне.', it:'гайка'},
+ elec:{v:'Электрика', h:'Замыкайте контакт строго в зелёной зоне. Мимо — искры.', it:'клемма'},
+ saw:{v:'Пилим', h:'Пилите в такт: жмите, когда стрелка в зелёной зоне.', it:'пропил'},
+ paint:{v:'Покраска', h:'Водите кистью по стене. Окна не пачкать!', bg:'#857e70', fg:'#d8c49a', ob:'#8fc3dc', obn:'win'},
+ mow:{v:'Покос', h:'Косите, водя по газону. Камни не задевать!', bg:'#356b2c', fg:'#8cc65e', ob:'#9a9a92', obn:'rock'},
+ clean:{v:'Уборка', h:'Сгребайте мусор, водя по участку. Клумбы не трогать!', bg:'#5d4a33', fg:'#a5946f', ob:'#e8475a', obn:'flower'},
+ snow:{v:'Снег', h:'Расчищайте снег, водя по сугробам. Кусты не задевать!', bg:'#eef3f7', fg:'#8e806a', ob:'#2f5a35', obn:'bush'},
+ garden:{v:'Земляные работы', h:'Копайте — жмите часто. Красный сигнал «Камень!» — стоп.', stop:'Камень!'},
+ concrete:{v:'Бетон', h:'Мешайте раствор — жмите часто. Сигнал «Комок!» — стоп.', stop:'Комок!'},
+ pest:{v:'Охота на мышей', h:'Жмите часто, пока мышь на виду. «Спряталась!» — стоп.', stop:'Спряталась!'},
+ other:{v:'Дело', h:'Жмите часто. Красный сигнал — стоп.', stop:'Стоп!'},
+};
+const MG_FAIL = {build:'Попали по пальцу. Работу придётся начать заново.', water:'Сорвали резьбу. Всё по новой.', elec:'Искры, хлопок, пробки выбило. Начинаем сначала.', saw:'Пила увязла в доске. Заново.', paint:'Заляпали окна. Перекрашиваем с нуля.', mow:'Коса звякнула о камень и затупилась. Заново.', clean:'Растоптали клумбу. Начинаем сначала.', snow:'Снесли куст вместе с сугробом. Заново.', garden:'Лопата погнулась о камень. Начинаем сначала.', concrete:'Раствор схватился комками. Замешиваем заново.', pest:'Мыши ушли и унесли приманку. Заново.', other:'Не вышло. Соберитесь и попробуйте ещё раз.'};
+const MG_SLOW = 'Не успели — запал прошёл. Придётся заново.';
+const MG_PERF = ['Точно!','В яблочко!','Мастер!','Как по маслу!'];
+let MG = null;
+const mgC = $('#mgC'), mgX = mgC.getContext('2d');
+function mgSize(){ const r = mgC.getBoundingClientRect(), d = Math.min(2, devicePixelRatio || 1); mgC.width = Math.max(1, Math.round(r.width*d)); mgC.height = Math.max(1, Math.round(r.height*d)); mgX.setTransform(d, 0, 0, d, 0, 0); if (MG){ MG.W = r.width; MG.H = r.height; } }
+function mgOpen(t){
+  const line = lineOf(t.ref), kind = MG_KIND[line] || 'tap', tx = MG_TXT[line] || MG_TXT.other, dur = effDur(t), L = Math.min(S.level, LAST);
+  const U = clamp(Math.round(dur), 4, 16), tier = TLINES[line] ? tierOf(line) : 0, p0 = S.prog[t.key] || 0;
+  MG = {t, line, kind, tx, U, tier, p0, f:p0, strikes:0, E:dur*eRate(line), used:0, time:0, fl:'', flT:0, flC:'#ffd23f', W:1, H:1};
+  if (kind === 'tim'){ MG.pos = 0; MG.dir = 1; MG.spd = .7*(1 + L/55); MG.zw = clamp(.24 - L*.0018, .12, .24) + tier*.025; mgZone(); }
+  if (kind === 'swp'){ const cols = 12, rows = 7, g = []; for (let i=0;i<cols*rows;i++) g.push(0);
+    const nob = 3 + Math.floor(L/15); let k = 0; while (k < nob){ const c = Math.floor(rnd(1, cols-1)), r = Math.floor(rnd(1, rows-1)), i = r*cols + c; if (g[i] === 0 && g[i-1] !== 2 && g[i+1] !== 2){ g[i] = 2; k++; } }
+    const free = g.map((v, i) => v === 0 ? i : -1).filter(i => i >= 0); let pre = Math.round(free.length*p0); free.sort(() => Math.random() - .5).slice(0, pre).forEach(i => g[i] = 1);
+    MG.cols = cols; MG.rows = rows; MG.g = g; MG.total = free.length; MG.cov = pre; MG.brush = .95 + .3*tier; MG.par = U*.9 + 3; MG.ptr = null; MG.down = false;
+    const cc = t.ref.ch && CHOICES[t.ref.ch].groups.find(G => G.type === 'color'); MG.fg = cc ? chv(t.ref.ch, cc.k) : tx.fg; }
+  if (kind === 'tap'){ MG.per = 1/(U*2); MG.limit = U*1.05 + 4 + tier; MG.stopT = rnd(1.5, 2.6); MG.stopOn = 0; MG.pulse = 0; }
+  paused = true; releaseInput(); try { if (document.pointerLockElement) document.exitPointerLock(); } catch(e){}
+  $('#mgK').textContent = tx.v + (tier ? ' · ' + toolName(line).toLowerCase() : ''); $('#mgN').textContent = t.ref.n;
+  $('#mgH').textContent = tx.h + ' ' + (kind === 'swp' ? (IS_TOUCH ? 'Ведите пальцем.' : 'Зажмите кнопку мыши и водите.') : (IS_TOUCH ? 'Касание — действие.' : 'Пробел, E или клик.'));
+  $('#mg').hidden = false; mgSize(); mgDraw(); mgStats();
+}
+function mgZone(){ MG.zc = rnd(.12 + MG.zw/2, .88 - MG.zw/2); }
+function mgSpend(e){ MG.used += e; S.energy = Math.max(0, S.energy - e); }
+function mgFlash(txt, c){ MG.fl = txt; MG.flT = .7; MG.flC = c; }
+function mgStrike(){ MG.strikes++; mgSpend(MG.E*.05); sfx('err'); mgFlash(MG.kind === 'tap' ? 'Рано!' : 'Мимо!', '#ff6b4f'); if (MG.strikes >= 3) mgClose('fail'); }
+function mgPress(){
+  if (!MG) return; const m = MG;
+  if (m.kind === 'tim'){ const d = Math.abs(m.pos - m.zc);
+    if (d <= m.zw*.16){ m.f += 1.5/m.U; mgSpend(m.E/m.U); sfx('perf'); mgFlash(pick(MG_PERF), '#8bd672'); mgZone(); }
+    else if (d <= m.zw/2){ m.f += 1/m.U; mgSpend(m.E/m.U); sfx('hit'); mgFlash('Хорошо', '#ffd23f'); mgZone(); }
+    else { mgStrike(); if (!MG) return; } }
+  else if (m.kind === 'tap'){ if (m.stopOn > 0){ m.f = Math.max(m.p0, m.f - .06); mgStrike(); if (!MG) return; } else { m.f += m.per; mgSpend(m.E*m.per*.8); m.pulse = 1; sfx('tap'); } }
+  mgCheck();
+}
+function mgPaint(x, y){ const m = MG; if (!m || m.kind !== 'swp') return; const cw = m.W/m.cols, ch = m.H/m.rows;
+  const ci = Math.floor(x/cw), ri = Math.floor(y/ch); if (ci >= 0 && ri >= 0 && ci < m.cols && ri < m.rows && m.g[ri*m.cols + ci] === 2){ const ox = (ci + .5)*cw, oy = (ri + .5)*ch; if (Math.abs(x - ox) < cw*.38 && Math.abs(y - oy) < ch*.38){ m.g[ri*m.cols + ci] = 3; mgStrike(); if (!MG) return; } }
+  const br = m.brush*Math.min(cw, ch); let n = 0;
+  for (let r=0;r<m.rows;r++) for (let c=0;c<m.cols;c++){ const i = r*m.cols + c; if (m.g[i] !== 0) continue; if (Math.hypot((c + .5)*cw - x, (r + .5)*ch - y) < br){ m.g[i] = 1; m.cov++; n++; } }
+  if (n){ mgSpend(m.E*(1 - m.p0)*n/Math.max(1, m.total*(1 - m.p0))); m.f = m.cov/m.total; if (Math.random() < .5) sfx('tap'); mgCheck(); } }
+function mgCheck(){ if (!MG) return; mgStats(); if (MG.f >= .999){ mgClose('done'); return; } if (S.energy <= .5) mgClose('tired'); }
+function mgStats(){ const m = MG; $('#mgP').style.width = Math.min(100, m.f*100) + '%';
+  let tx = 'Силы ' + Math.round(S.energy); if (m.kind === 'tap') tx += ' · ' + Math.max(0, Math.ceil(m.limit - m.time)) + ' с';
+  $('#mgS').innerHTML = tx + ' · <b>' + '●'.repeat(m.strikes) + '</b>' + '○'.repeat(3 - m.strikes); }
+function mgClose(why){
+  const m = MG; if (!m) return; MG = null; $('#mg').hidden = true; paused = false; holdBlocked = true;
+  const t = m.t, base = m.E*(1 - m.p0);
+  if (why === 'done'){
+    let refund = 0; if (m.kind === 'swp') refund = base*.35*clamp((m.par - m.time)/m.par, 0, 1); if (m.kind === 'tap') refund = base*.35*clamp((m.limit - m.time)/m.limit, 0, 1);
+    if (refund > 0){ S.energy = Math.min(maxEnergy(), S.energy + refund); m.used -= refund; }
+    const saved = Math.round(base - m.used);
+    finish(t); if (saved >= 2) setTimeout(() => toast('Чисто сработано: сэкономили ' + saved + ' сил.', 'ok'), 700);
+    return; }
+  if (why === 'fail'){ S.prog[t.key] = m.p0; toast((m.kind === 'tap' && m.strikes < 3 ? MG_SLOW : MG_FAIL[m.line] || MG_FAIL.other) + ' −' + Math.round(m.used) + ' сил', 'bad'); }
+  else { S.prog[t.key] = Math.min(.99, m.f); if (why === 'tired') toast(pick(NO_ENERGY), 'bad'); }
+  updateHUD(); renderTasks(); save();
+}
+function mgTick(dt){ const m = MG; m.time += dt; if (m.flT > 0) m.flT -= dt;
+  if (m.kind === 'tim'){ m.pos += m.dir*m.spd*dt; if (m.pos > 1){ m.pos = 2 - m.pos; m.dir = -1; } if (m.pos < 0){ m.pos = -m.pos; m.dir = 1; } }
+  if (m.kind === 'tap'){ m.pulse = Math.max(0, m.pulse - dt*6); m.f = Math.max(m.p0, m.f - dt*.025);
+    if (m.stopOn > 0){ m.stopOn -= dt; if (m.stopOn <= 0) m.stopT = rnd(1.4, 2.8); } else { m.stopT -= dt; if (m.stopT <= 0) m.stopOn = .85; }
+    if (m.time > m.limit){ mgClose('fail'); return; } }
+  mgDraw(); if (Math.floor(m.time*4) !== Math.floor((m.time - dt)*4)) mgStats(); }
+function rr(x, y, w, h, r){ mgX.beginPath(); mgX.moveTo(x + r, y); mgX.arcTo(x + w, y, x + w, y + h, r); mgX.arcTo(x + w, y + h, x, y + h, r); mgX.arcTo(x, y + h, x, y, r); mgX.arcTo(x, y, x + w, y, r); mgX.closePath(); }
+function mgDraw(){ const m = MG, X = mgX, W = m.W, H = m.H; X.clearRect(0, 0, W, H);
+  if (m.kind === 'tim'){
+    X.fillStyle = '#0c1310'; X.fillRect(0, 0, W, H);
+    const n = Math.ceil(m.U), done = Math.min(n, Math.floor(m.f*m.U + 1e-6)), sw = Math.min(30, (W - 40)/n);
+    for (let i=0;i<n;i++){ const x = W/2 - n*sw/2 + i*sw + sw/2, y = H*.26;
+      X.fillStyle = i < done ? '#8bd672' : 'rgba(241,233,212,.18)'; X.beginPath(); X.arc(x, y, sw*.3, 0, 6.29); X.fill();
+      if (i < done){ X.strokeStyle = '#0c1310'; X.lineWidth = 2; X.beginPath(); X.moveTo(x - sw*.15, y); X.lineTo(x + sw*.15, y); X.stroke(); } }
+    X.fillStyle = 'rgba(241,233,212,.55)'; X.font = '500 12px ' + getComputedStyle(document.body).fontFamily; X.textAlign = 'center'; X.fillText(m.tx.it ? m.tx.it + ': ' + done + ' из ' + n : '', W/2, H*.26 + 26);
+    const bx = 24, bw = W - 48, by = H*.56, bh = Math.max(26, H*.13);
+    rr(bx, by, bw, bh, 8); X.fillStyle = 'rgba(255,255,255,.08)'; X.fill();
+    X.fillStyle = 'rgba(139,214,114,.45)'; X.fillRect(bx + (m.zc - m.zw/2)*bw, by, m.zw*bw, bh);
+    X.fillStyle = '#8bd672'; X.fillRect(bx + (m.zc - m.zw*.16)*bw, by, m.zw*.32*bw, bh);
+    const mx = bx + m.pos*bw; X.fillStyle = '#ffd23f'; X.fillRect(mx - 2.5, by - 10, 5, bh + 20);
+    X.beginPath(); X.moveTo(mx - 9, by - 14); X.lineTo(mx + 9, by - 14); X.lineTo(mx, by - 4); X.fill();
+  }
+  if (m.kind === 'swp'){ const cw = W/m.cols, ch = H/m.rows;
+    X.fillStyle = m.tx.bg; X.fillRect(0, 0, W, H);
+    for (let r=0;r<m.rows;r++) for (let c=0;c<m.cols;c++){ const v = m.g[r*m.cols + c], x = c*cw, y = r*ch;
+      if (v === 0){ X.fillStyle = 'rgba(0,0,0,.08)'; for (let k=0;k<3;k++) X.fillRect(x + cw*(.15 + k*.3), y + ch*.2, 2, ch*.6); }
+      if (v === 1){ X.fillStyle = m.fg; X.fillRect(x - .5, y - .5, cw + 1, ch + 1); }
+      if (v >= 2){ X.fillStyle = m.tx.ob; const cx = x + cw/2, cy = y + ch/2, rad = Math.min(cw, ch)*.36;
+        if (m.tx.obn === 'win'){ X.fillRect(cx - rad, cy - rad, rad*2, rad*2); X.fillStyle = '#ffffff'; X.fillRect(cx - 1, cy - rad, 2, rad*2); X.fillRect(cx - rad, cy - 1, rad*2, 2); }
+        else { X.beginPath(); X.arc(cx, cy, rad, 0, 6.29); X.fill(); if (m.tx.obn === 'flower'){ X.fillStyle = '#ffd23f'; X.beginPath(); X.arc(cx, cy, rad*.35, 0, 6.29); X.fill(); } }
+        if (v === 3){ X.strokeStyle = '#ff2d1a'; X.lineWidth = 3; X.beginPath(); X.moveTo(cx - rad, cy - rad); X.lineTo(cx + rad, cy + rad); X.moveTo(cx + rad, cy - rad); X.lineTo(cx - rad, cy + rad); X.stroke(); } } }
+    if (m.ptr){ X.strokeStyle = 'rgba(255,255,255,.85)'; X.lineWidth = 2; X.beginPath(); X.arc(m.ptr[0], m.ptr[1], m.brush*Math.min(cw, ch), 0, 6.29); X.stroke(); }
+    const left = Math.max(0, m.par - m.time); X.fillStyle = 'rgba(15,23,20,.7)'; rr(8, 8, 118, 24, 6); X.fill(); X.fillStyle = left > 0 ? '#8bd672' : '#a9a48e'; X.font = '600 12px ' + getComputedStyle(document.body).fontFamily; X.textAlign = 'left'; X.fillText(left > 0 ? 'бонус: ещё ' + Math.ceil(left) + ' с' : 'без бонуса', 16, 24);
+  }
+  if (m.kind === 'tap'){ const stop = m.stopOn > 0;
+    X.fillStyle = stop ? '#4a1410' : '#0c1310'; X.fillRect(0, 0, W, H);
+    const tl = clamp(1 - m.time/m.limit, 0, 1); X.fillStyle = tl > .3 ? 'rgba(241,233,212,.35)' : '#ff6b4f'; X.fillRect(0, 0, W*tl, 5);
+    const cx = W/2, cy = H*.52, R = Math.min(W, H)*.3*(1 + m.pulse*.06);
+    X.lineWidth = 12; X.strokeStyle = 'rgba(255,255,255,.1)'; X.beginPath(); X.arc(cx, cy, R, 0, 6.29); X.stroke();
+    X.strokeStyle = '#ffd23f'; X.beginPath(); X.arc(cx, cy, R, -Math.PI/2, -Math.PI/2 + 6.283*Math.min(1, m.f)); X.stroke();
+    X.fillStyle = stop ? '#ff6b4f' : '#f1e9d4'; X.textAlign = 'center'; X.font = '800 ' + Math.round(R*.42) + 'px ' + getComputedStyle(document.documentElement).getPropertyValue('--f-disp');
+    X.fillText(stop ? m.tx.stop : 'ЖМИ', cx, cy + R*.15);
+  }
+  if (m.flT > 0){ X.globalAlpha = Math.min(1, m.flT*2); X.fillStyle = m.flC; X.textAlign = 'center'; X.font = '800 22px ' + getComputedStyle(document.documentElement).getPropertyValue('--f-disp'); X.fillText(m.fl, W/2, m.kind === 'tim' ? H*.45 : 34); X.globalAlpha = 1; }
+}
+mgC.addEventListener('pointerdown', e => { if (!MG) return; e.preventDefault(); initAudio(); if (MG.kind === 'swp'){ MG.down = true; try { mgC.setPointerCapture(e.pointerId); } catch(_){} MG.ptr = [e.offsetX, e.offsetY]; mgPaint(e.offsetX, e.offsetY); } else mgPress(); });
+mgC.addEventListener('pointermove', e => { if (!MG || MG.kind !== 'swp') return; const p = [e.offsetX, e.offsetY], q = MG.ptr; MG.ptr = p; if (!MG.down) return;
+  if (q){ const d = Math.hypot(p[0] - q[0], p[1] - q[1]), st = Math.max(1, Math.ceil(d/6)); for (let i=1;i<=st && MG;i++) mgPaint(q[0] + (p[0] - q[0])*i/st, q[1] + (p[1] - q[1])*i/st); } else mgPaint(p[0], p[1]); });
+['pointerup','pointercancel','pointerleave'].forEach(ev => mgC.addEventListener(ev, () => { if (MG) MG.down = false; }));
+$('#mgX').addEventListener('click', () => mgClose('pause'));
+addEventListener('resize', () => { if (MG){ mgSize(); mgDraw(); } });
 
 // ======================================================================
 // START / LOOP
@@ -2123,7 +2274,7 @@ function animate(dt, t){
   if (W.slampGlow.visible) W.slampGlow.material.opacity = .8 + Math.sin(t*2)*.05;
   if (isEvening && W.tree.visible) W.treeGlows.forEach((g, i) => g.material.opacity = .55 + .45*Math.max(0, Math.sin(t*2.4 + i*1.7)));
 }
-function loop(now){ requestAnimationFrame(loop); const dt = Math.min(.05, (now - last)/1000); last = now; tick(dt, now/1000); renderer.render(scene, camera); }
+function loop(now){ requestAnimationFrame(loop); const dt = Math.min(.05, (now - last)/1000); last = now; if (MG) mgTick(dt); tick(dt, now/1000); renderer.render(scene, camera); }
 function onResize(){ renderer.setSize(innerWidth, innerHeight, false); camera.aspect = innerWidth/innerHeight; camera.updateProjectionMatrix(); $('#start').classList.toggle('narrow', innerWidth < 720); }
 addEventListener('resize', onResize);
 addEventListener('beforeunload', save);
